@@ -4,3 +4,4 @@ twitter-api-client
 tqdm
 pandas
 httpx
+beautifulsoup4
