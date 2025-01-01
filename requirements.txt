@@ -1,0 +1,6 @@
+streamlit
+jmespath
+twitter-api-client
+tqdm
+pandas
+httpx
