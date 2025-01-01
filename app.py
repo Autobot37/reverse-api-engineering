@@ -130,7 +130,9 @@ if selected == "Instagram":
             img = Image.open(BytesIO(response.content))
             st.image(img, caption=username)
         post_count = 0
-        for post in tqdm(profile.get_posts(), total=total_posts, desc="Fetching posts (Instaloader)"):
+        progress_bar = st.progress(0)
+        post_count = 0
+        for post in profile.get_posts():
             if post_count >= total_posts:
                 break
             post_count += 1
@@ -138,7 +140,14 @@ if selected == "Instagram":
                 media_urls.add(post.url)
             if post.is_video:
                 media_urls.add(post.video_url)
-
+            progress_bar.progress(post_count / total_posts)
+            if post_count >= total_posts:
+                break
+            post_count += 1
+            if post.url:
+                media_urls.add(post.url)
+            if post.is_video:
+                media_urls.add(post.video_url)
 
     def fetch_user_posts_httpx(username, total_posts, max_pages):
         def generate_random_headers(csrf_token=None):
@@ -195,12 +204,14 @@ if selected == "Instagram":
             user_data = scrape_user(username, session)
             user_id = user_data["id"]
             total_scraped = 0
-            for post in tqdm(scrape_user_posts(user_id, session, max_pages=max_pages), total=total_posts, desc="Fetching posts (HTTPX)"):
+            progress_bar = st.progress(0)
+            for post in scrape_user_posts(user_id, session, max_pages=max_pages):
                 if post.get("is_video") and post.get("video_url"):
                     media_urls.add(post["video_url"])
                 elif post.get("display_url"):
                     media_urls.add(post["display_url"])
                 total_scraped += 1
+                progress_bar.progress(total_scraped / total_posts)
 
     did = False
     try:
