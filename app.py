@@ -297,8 +297,8 @@ if selected == "Twitter":
         
         return image_urls, video_urls
 
-    ct0_token = st.text_input("Log in to Twitter from web and click application > cookies > ct0")
-    auth_token = st.text_input("Log in to Twitter from web and click application > cookies > auth_token")
+    ct0_token = st.text_input("Log in to Twitter from web and click inspect > application > cookies > ct0")
+    auth_token = st.text_input("Log in to Twitter from web and click inspect > application > cookies > auth_token")
     username = st.text_input("Enter username")
     limit = st.number_input("Number of tweets to scrape", min_value=10, value=10, max_value=1000)
     if ct0_token and auth_token and username and limit and st.button("Scrape Twitter Media"):
