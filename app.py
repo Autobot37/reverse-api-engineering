@@ -15,6 +15,7 @@ import random
 from twitter.scraper import Scraper
 from tqdm import tqdm
 from twitter.util import init_session
+from instaloader import Instaloader, Profile
 
 st.title("Social Media Scraper")
 
@@ -112,20 +113,39 @@ if selected == "Reddit":
 
 #------------------------------------------------
 if selected == "Instagram":
+
     username = st.text_input("Enter Instagram username (e.g., natgeo)")
-    max_pages = st.number_input("Number of pages to scrape, one page scrapes 12 posts", min_value=1, value=1, max_value=10)
+    max_pages = st.number_input("Number of pages to scrape (1 page scrapes 12 posts)", min_value=1, value=1, max_value=10)
+    total_posts = max_pages * 12
 
-    if username and st.button("Scrape Instagram"):
-        media_urls = set()
+    media_urls = set()
 
+    def fetch_user_posts_instaloader(username, total_posts):
+        loader = Instaloader()
+        st.write("Login Success")
+        profile = Profile.from_username(loader.context, username)
+        st.write("Scraping for", profile.username)
+        response = httpx.get(profile.profile_pic_url)
+        if response.status_code == 200:
+            img = Image.open(BytesIO(response.content))
+            st.image(img, caption=username)
+        post_count = 0
+        for post in tqdm(profile.get_posts(), total=total_posts, desc="Fetching posts (Instaloader)"):
+            if post_count >= total_posts:
+                break
+            post_count += 1
+            if post.url:
+                media_urls.add(post.url)
+            if post.is_video:
+                media_urls.add(post.video_url)
+
+
+    def fetch_user_posts_httpx(username, total_posts, max_pages):
         def generate_random_headers(csrf_token=None):
             user_agents = [
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 14_2 like Mac OS X) AppleWebKit/605.1.15 "
-                "(KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.93 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 14_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1",
             ]
             headers = {
                 "x-ig-app-id": "936619743392459",
@@ -137,47 +157,17 @@ if selected == "Instagram":
                 headers["x-csrftoken"] = csrf_token
             return headers
 
-        def get_csrf_token(session: httpx.Client):
+        def get_csrf_token(session):
             response = session.get("https://www.instagram.com/")
             return response.cookies.get("csrftoken", "")
 
-        def scrape_user(username: str, session: httpx.Client) -> Dict:
+        def scrape_user(username, session):
             url = f"https://i.instagram.com/api/v1/users/web_profile_info/?username={username}"
             result = session.get(url)
             data = json.loads(result.content)
             return data["data"]["user"]
 
-        def parse_user(data: Dict) -> Dict:
-            return jmespath.search(
-                """{
-                name: full_name,
-                username: username,
-                id: id,
-                followers: edge_followed_by.count,
-                follows: edge_follow.count,
-                profile_image: profile_pic_url_hd,
-                is_private: is_private,
-                is_verified: is_verified
-            }""",
-                data,
-            )
-
-        def parse_post(data: Dict) -> Dict:
-            return jmespath.search(
-                """{
-                id: id,
-                shortcode: shortcode,
-                src: display_url,
-                is_video: is_video,
-                video_url: video_url,
-                captions: edge_media_to_caption.edges[].node.text,
-                likes: edge_media_preview_like.count,
-                comments_count: edge_media_to_parent_comment.count
-            }""",
-                data,
-            )
-
-        def scrape_user_posts(user_id: str, session: httpx.Client, page_size=12, max_pages: int = None):
+        def scrape_user_posts(user_id, session, page_size=12, max_pages=None):
             base_url = "https://www.instagram.com/graphql/query/?query_hash=e769aa130647d2354c40ea6a439bfc08&variables="
             variables = {
                 "id": user_id,
@@ -186,22 +176,15 @@ if selected == "Instagram":
             }
             page_number = 1
             while page_number <= max_pages:
-                try:
-                    resp = session.get(base_url + quote(json.dumps(variables)))
-                    data = resp.json()
-                    posts = data["data"]["user"]["edge_owner_to_timeline_media"]
-                    for post in posts["edges"]:
-                        yield parse_post(post["node"])
-                    if not posts["page_info"]["has_next_page"]:
-                        break
-                    variables["after"] = posts["page_info"]["end_cursor"]
-                    page_number += 1
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                resp = session.get(base_url + quote(json.dumps(variables)))
+                data = resp.json()
+                posts = data["data"]["user"]["edge_owner_to_timeline_media"]
+                for post in posts["edges"]:
+                    yield post["node"]
+                if not posts["page_info"]["has_next_page"]:
                     break
-
-        progress_bar = st.progress(0)
-        progress_text = st.empty()
+                variables["after"] = posts["page_info"]["end_cursor"]
+                page_number += 1
 
         with httpx.Client(
             headers=generate_random_headers(),
@@ -210,37 +193,41 @@ if selected == "Instagram":
             csrf_token = get_csrf_token(session)
             session.headers.update(generate_random_headers(csrf_token=csrf_token))
             user_data = scrape_user(username, session)
-            user = parse_user(user_data)
-
-            st.write(f"Scraping posts for user: {user['name']} ({user['username']})")
-
+            user_id = user_data["id"]
             total_scraped = 0
-            total_posts = max_pages * 12
-
-            for post in scrape_user_posts(user["id"], session, max_pages=max_pages):
-                if post["is_video"] and post["video_url"]:
+            for post in tqdm(scrape_user_posts(user_id, session, max_pages=max_pages), total=total_posts, desc="Fetching posts (HTTPX)"):
+                if post.get("is_video") and post.get("video_url"):
                     media_urls.add(post["video_url"])
-                elif post["src"]:
-                    try:
-                        response = session.get(post["src"])
-                        if response.status_code == 200:
-                            media_urls.add(post["src"])
-                    except Exception as e:
-                        st.error(f"Error fetching image URL: {e}")
+                elif post.get("display_url"):
+                    media_urls.add(post["display_url"])
                 total_scraped += 1
 
-                progress_bar.progress(min(total_scraped / total_posts, 1.0))
-                progress_text.text(f"Scraped {total_scraped}/{total_posts} posts")
+    did = False
+    try:
+        if username and st.button("Scrape Instagram"):
+            fetch_user_posts_instaloader(username, total_posts)
+            st.write(f"Scraped {len(media_urls)} media items using Instaloader.")
+            did = True
+    except Exception as e:
+        st.write("Instaloader failed. Trying HTTPX method.")
+        try:
+            fetch_user_posts_httpx(username, total_posts, max_pages)
+            st.write(f"Scraped {len(media_urls)} media items using HTTPX.")
+            did = True
+        except Exception as e:
+            st.write(f"HTTPX method also failed: {e}")
 
-        st.write(f"Scraped {len(media_urls)} media items.")
+    if did:
         csv_filename = f"{username}_media_urls.csv"
         pd.DataFrame(list(media_urls), columns=["Media URL"]).to_csv(csv_filename, index=False)
+
         st.download_button(
             label="Download CSV",
             data=pd.DataFrame(list(media_urls), columns=["Media URL"]).to_csv(index=False),
             file_name=csv_filename,
             mime="text/csv",
         )
+
         st.write("Displaying the first 20 media items:")
         for url in list(media_urls)[:20]:
             if any(ext in url for ext in [".mp4", ".webm"]):
@@ -253,7 +240,6 @@ if selected == "Instagram":
                         st.image(img, use_container_width=True)
                 except Exception as e:
                     st.error(f"Error displaying image: {e}")
-        
 #------------------------------------------------
 
 if selected == "Twitter":
