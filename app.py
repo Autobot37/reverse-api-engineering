@@ -115,14 +115,19 @@ if selected == "Reddit":
 if selected == "Instagram":
 
     username = st.text_input("Enter Instagram username (e.g., natgeo)")
-    max_pages = st.number_input("Number of pages to scrape (1 page scrapes 12 posts)", min_value=1, value=1, max_value=10)
+    max_pages = st.number_input("Number of pages to scrape (1 page scrapes 12 posts)", min_value=1, value=1, max_value=1000)
     total_posts = max_pages * 12
-
+    acc_username = st.text_input("Account username(Optional if you want large scraping)")
+    acc_password = st.text_input("Account password(Optional if you want large scraping)")
     media_urls = set()
 
-    def fetch_user_posts_instaloader(username, total_posts):
-        loader = Instaloader()
-        st.write("Login Success")
+    def fetch_user_posts_instaloader(username, total_posts, acc_username=None, acc_password=None):
+        if acc_username and acc_password:
+            loader = Instaloader(acc_username, acc_password)
+            st.write("Account login success")
+        else:
+            loader = Instaloader()
+            st.write("Anon Login Success")
         profile = Profile.from_username(loader.context, username)
         st.write("Scraping for", profile.username)
         response = httpx.get(profile.profile_pic_url)
@@ -213,22 +218,19 @@ if selected == "Instagram":
                 total_scraped += 1
                 progress_bar.progress(total_scraped / total_posts)
 
-    did = False
     try:
         if username and st.button("Scrape Instagram"):
-            fetch_user_posts_instaloader(username, total_posts)
+            fetch_user_posts_instaloader(username, total_posts, username=acc_username, password=acc_password)
             st.write(f"Scraped {len(media_urls)} media items using Instaloader.")
-            did = True
     except Exception as e:
         st.write("Instaloader failed. Trying HTTPX method.")
         try:
             fetch_user_posts_httpx(username, total_posts, max_pages)
             st.write(f"Scraped {len(media_urls)} media items using HTTPX.")
-            did = True
         except Exception as e:
             st.write(f"HTTPX method also failed: {e}")
 
-    if did:
+    if len(media_urls) > 0:
         csv_filename = f"{username}_media_urls.csv"
         pd.DataFrame(list(media_urls), columns=["Media URL"]).to_csv(csv_filename, index=False)
 
@@ -252,7 +254,6 @@ if selected == "Instagram":
                 except Exception as e:
                     st.error(f"Error displaying image: {e}")
 #------------------------------------------------
-
 if selected == "Twitter":
     def flatten_dict(d):
         ret = {}
@@ -282,7 +283,6 @@ if selected == "Twitter":
     def get_media_urls(tweets):
         image_urls = set()
         video_urls = set()
-        
         for tweet in tweets:
             flattened_tweet = flatten_dict(tweet)
             if "media_url_https" in flattened_tweet:
@@ -291,60 +291,67 @@ if selected == "Twitter":
                 for url in flattened_tweet["url"]:
                     if any(ext in url for ext in [".mp4", ".webm"]):
                         video_urls.add(url)
-        
         return image_urls, video_urls
 
     ct0_token = st.text_input("Log in to Twitter from web and click inspect > application > cookies > ct0")
     auth_token = st.text_input("Log in to Twitter from web and click inspect > application > cookies > auth_token")
-    username = st.text_input("Enter username")
+    usernames = st.text_input("Enter usernames (comma-separated)")
     limit = st.number_input("Number of tweets to scrape", min_value=10, value=10, max_value=1000)
-    if ct0_token and auth_token and username and limit and st.button("Scrape Twitter Media"):
+    acc_user = st.text_input("Account username")
+    acc_password = st.text_input("Account password")
+    
+    if ((ct0_token and auth_token and usernames and limit) or (acc_user and acc_password)) and st.button("Scrape Twitter Media"):
+        usernames = [username.strip() for username in usernames.split(",") if username.strip()]
         try:
-            scraper = Scraper(cookies={
-                "ct0": ct0_token,
-                "auth_token": auth_token
-            })
-            st.write("Login success")
+            scraper = Scraper(acc_user, acc_password)
+            users = scraper.users(usernames)
+            st.write("Login success with username and password")
+        except Exception:
+            try:
+                scraper = Scraper(cookies={"ct0": ct0_token, "auth_token": auth_token})
+                users = scraper.users(usernames)
+                st.write("Login success with cookies")
+            except Exception as e:
+                st.write(f"Login failed: {e}")
+
+        try:
+            media_urls = {"images": set(), "videos": set()}
+            user_ids = []
+            for i, user in enumerate(users):
+                st.write(f"Scraping for {usernames[i]}, Description: {flatten_dict(user).get('description', [''])[0]}")
+                profile_url = flatten_dict(user).get("profile_image_url_https", [""])[0]
+                st.image(profile_url, caption=usernames[i])
+                user_id = flatten_dict(user)["rest_id"][0]
+                user_ids.append(user_id)
+
+            tweets = scraper.tweets(user_ids, limit=limit, progress_bar=True)
+            if len(tweets) > 0:
+                image_urls, video_urls = get_media_urls(tweets)
+                media_urls["images"].update(image_urls)
+                media_urls["videos"].update(video_urls)
+
+                st.write(f"Scraped {len(media_urls['images'])} image URLs and {len(media_urls['videos'])} video URLs.")
+
+                csv_filename = "twitter_media_urls.csv"
+                all_tweet_data = [flatten_dict(tweet) for tweet in tweets]
+                all_tweet_df = pd.DataFrame(all_tweet_data).fillna("")
+                all_tweet_df.to_csv(csv_filename, index=False)
+
+                st.download_button(
+                    label="Download Media URLs CSV",
+                    data=all_tweet_df.to_csv(index=False),
+                    file_name=csv_filename,
+                    mime="text/csv",
+                )
+
+                st.write("Displaying 20 random image URLs:")
+                random_images = random.sample(media_urls["images"], min(20, len(media_urls["images"])))
+                for url in random_images:
+                    st.image(url)
+
+                st.write("Displaying 20 random video URLs:")
+                random_videos = random.sample(media_urls["videos"], min(20, len(media_urls["videos"])))
+                for url in random_videos:
+                    st.video(url)
         except Exception as e:
-            st.write("Login Fetched", e)
-        
-        try:
-            media_urls = {
-                "images": set(),
-                "videos": set(),
-            }   
-            user = scraper.users([username])
-            st.write("Scraping for", username, "Description:", flatten_dict(user[0])["description"])
-            profile_url = flatten_dict(user[0])["profile_image_url_https"][0]
-            st.image(profile_url, caption=username)
-            user_id = flatten_dict(user[0])["rest_id"]
-            st.write("user id is", user_id)
-            tweets = scraper.tweets(user_id, limit=limit)
-            image_urls, video_urls = get_media_urls(tweets)
-            media_urls["images"].update(image_urls)
-            media_urls["videos"].update(video_urls)
-            
-            st.write(f"Scraped {len(media_urls['images'])} image URLs and {len(media_urls['videos'])} video URLs.")
-            
-            csv_filename = "twitter_media_urls.csv"
-            all_tweet_data = [flatten_dict(tweet) for tweet in tweets]
-            all_tweet_df = pd.DataFrame(all_tweet_data).fillna("")
-            all_tweet_df.to_csv(csv_filename, index=False)
-                
-            st.download_button(
-                label="Download Media URLs CSV",
-                data=all_tweet_df.to_csv(index=False),
-                file_name=csv_filename,
-                mime="text/csv",
-            )
-
-            st.write("Displaying the first 5 image URLs:")
-            for url in list(media_urls["images"])[:min(20, len(media_urls["images"]))]:
-                st.image(url)
-
-            st.write("Displaying the first 5 video URLs:")
-            for url in list(media_urls["videos"])[:min(10, len(media_urls["videos"]))]:
-                st.video(url)
-        except:
-            st.write("Media Fetching failed. Please refresh and try new cookies.")
-        
+            st.write(f"Media Fetching failed: {e}. Please refresh and try new cookies.")
