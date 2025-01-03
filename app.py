@@ -7,6 +7,7 @@ from tqdm import tqdm
 from PIL import Image
 from io import BytesIO
 import httpx
+import tls_requests as requests
 from urllib.parse import quote
 from typing import Dict
 import jmespath
@@ -122,10 +123,12 @@ if selected == "Instagram":
     media_urls = set()
 
     def fetch_user_posts_instaloader(username, total_posts, acc_username=None, acc_password=None):
-        if acc_username and acc_password:
+        if acc_username is not None and acc_password is not None:
+            st.write(f"Logging in with {acc_username} and {acc_password}")
             loader = Instaloader(acc_username, acc_password)
             st.write("Account login success")
         else:
+            st.write("Logging in anonymously")
             loader = Instaloader()
             st.write("Anon Login Success")
         profile = Profile.from_username(loader.context, username)
@@ -137,22 +140,25 @@ if selected == "Instagram":
         post_count = 0
         progress_bar = st.progress(0)
         post_count = 0
-        for post in profile.get_posts():
-            if post_count >= total_posts:
-                break
-            post_count += 1
-            if post.url:
-                media_urls.add(post.url)
-            if post.is_video:
-                media_urls.add(post.video_url)
-            progress_bar.progress(post_count / total_posts)
-            if post_count >= total_posts:
-                break
-            post_count += 1
-            if post.url:
-                media_urls.add(post.url)
-            if post.is_video:
-                media_urls.add(post.video_url)
+        try:
+            for post in profile.get_posts():
+                if post_count >= total_posts:
+                    break
+                post_count += 1
+                if post.url:
+                    media_urls.add(post.url)
+                if post.is_video:
+                    media_urls.add(post.video_url)
+                progress_bar.progress(post_count / total_posts)
+                if post_count >= total_posts:
+                    break
+                post_count += 1
+                if post.url:
+                    media_urls.add(post.url)
+                if post.is_video:
+                    media_urls.add(post.video_url)
+        except:
+            return
 
     def fetch_user_posts_httpx(username, total_posts, max_pages):
         def generate_random_headers(csrf_token=None):
@@ -200,9 +206,8 @@ if selected == "Instagram":
                 variables["after"] = posts["page_info"]["end_cursor"]
                 page_number += 1
 
-        with httpx.Client(
+        with requests.Client(
             headers=generate_random_headers(),
-            timeout=httpx.Timeout(60.0),
         ) as session:
             csrf_token = get_csrf_token(session)
             session.headers.update(generate_random_headers(csrf_token=csrf_token))
@@ -220,7 +225,10 @@ if selected == "Instagram":
 
     try:
         if username and st.button("Scrape Instagram"):
-            fetch_user_posts_instaloader(username, total_posts, username=acc_username, password=acc_password)
+            if acc_username and acc_password:
+                fetch_user_posts_instaloader(username, total_posts, acc_username, acc_password)
+            else:
+                fetch_user_posts_instaloader(username, total_posts)
             st.write(f"Scraped {len(media_urls)} media items using Instaloader.")
     except Exception as e:
         st.write("Instaloader failed. Trying HTTPX method.")
@@ -253,6 +261,8 @@ if selected == "Instagram":
                         st.image(img, use_container_width=True)
                 except Exception as e:
                     st.error(f"Error displaying image: {e}")
+    else:
+        st.write("No media items scraped.")
 #------------------------------------------------
 if selected == "Twitter":
     def flatten_dict(d):
@@ -345,12 +355,12 @@ if selected == "Twitter":
                 )
 
                 st.write("Displaying 20 random image URLs:")
-                random_images = random.sample(media_urls["images"], min(20, len(media_urls["images"])))
+                random_images = random.sample(list(media_urls["images"]), min(20, len(media_urls["images"])))
                 for url in random_images:
                     st.image(url)
 
                 st.write("Displaying 20 random video URLs:")
-                random_videos = random.sample(media_urls["videos"], min(20, len(media_urls["videos"])))
+                random_videos = random.sample(list(media_urls["videos"]), min(20, len(media_urls["videos"])))
                 for url in random_videos:
                     st.video(url)
         except Exception as e:
