@@ -6,3 +6,4 @@ pandas
 httpx
 beautifulsoup4
 instaloader
+wrapper-tls-requests
