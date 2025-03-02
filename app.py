@@ -355,12 +355,14 @@ if selected == "Twitter":
                 )
 
                 st.write("Displaying 20 random image URLs:")
-                random_images = random.sample(list(media_urls["images"]), min(20, len(media_urls["images"])))
+                # random_images = random.sample(list(media_urls["images"]), min(20, len(media_urls["images"])))
+                random_images = list(media_urls["images"])
                 for url in random_images:
                     st.image(url)
 
                 st.write("Displaying 20 random video URLs:")
-                random_videos = random.sample(list(media_urls["videos"]), min(20, len(media_urls["videos"])))
+                # random_videos = random.sample(list(media_urls["videos"]), min(20, len(media_urls["videos"])))
+                random_videos = list(media_urls["videos"])
                 for url in random_videos:
                     st.video(url)
         except Exception as e:
