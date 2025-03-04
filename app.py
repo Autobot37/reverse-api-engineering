@@ -7,7 +7,6 @@ from tqdm import tqdm
 from PIL import Image
 from io import BytesIO
 import httpx
-import tls_requests as requests
 from urllib.parse import quote
 from typing import Dict
 import jmespath
