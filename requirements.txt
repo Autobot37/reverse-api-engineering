@@ -6,3 +6,4 @@ pandas
 httpx
 beautifulsoup4
 twitter-openapi-python
+tweepy_authlib
