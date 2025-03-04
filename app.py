@@ -81,19 +81,6 @@ if st.button("Scrape Twitter Media"):
         users = scraper.users(usernames)
     except Exception as e:
         st.write(f"Login failed: {e}")
-        if st.button("Try again"):
-            auth_handler = CookieSessionUserHandler(
-                screen_name = st.secrets["username"],
-                password = st.secrets["password"],
-            )
-            cookies_dict = auth_handler.get_cookies().get_dict()
-            print(cookies_dict)
-            with open("cookies.json", "w") as f:
-                f.write(cookies_dict)
-            
-
-            st.write("refreshing session refreshed, refresh the tab.")
-        
     st.write("Login success with cookies")
 
     try:
